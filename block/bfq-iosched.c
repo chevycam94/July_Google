@@ -2267,7 +2267,7 @@ static void bfq_arm_slice_timer(struct bfq_data *bfqd)
 {
 	struct bfq_queue *bfqq = bfqd->in_service_queue;
 	struct bfq_io_cq *bic;
-	unsigned long sl;
+	u32 sl;
 
 	BUG_ON(!RB_EMPTY_ROOT(&bfqq->sort_list));
 
@@ -2301,15 +2301,14 @@ static void bfq_arm_slice_timer(struct bfq_data *bfqd)
 	 */
 	if (BFQQ_SEEKY(bfqq) && bfqq->wr_coeff == 1 &&
 	    bfq_symmetric_scenario(bfqd))
-		sl = min_t(u64, sl, BFQ_MIN_TT);
+		sl = min_t(u32, sl, BFQ_MIN_TT);
 
 	bfqd->last_idling_start = ktime_get();
 	hrtimer_start(&bfqd->idle_slice_timer, ns_to_ktime(sl),
 		      HRTIMER_MODE_REL);
 	bfqg_stats_set_start_idle_time(bfqq_group(bfqq));
-	bfq_log(bfqd, "arm idle: %llu/%llu ms",
-		div_u64(sl, NSEC_PER_MSEC),
-		div_u64(bfqd->bfq_slice_idle, NSEC_PER_MSEC));
+	bfq_log(bfqd, "arm idle: %ld/%ld ms",
+		sl / NSEC_PER_MSEC, bfqd->bfq_slice_idle / NSEC_PER_MSEC);
 }
 
 /*
@@ -4125,7 +4124,7 @@ static void bfq_update_io_thinktime(struct bfq_data *bfqd,
 	struct bfq_ttime *ttime = &bic->ttime;
 	u64 elapsed = ktime_get_ns() - bic->ttime.last_end_request;
 
-	elapsed = min(elapsed, 2UL * bfqd->bfq_slice_idle);
+	elapsed = min_t(u64, elapsed, 2 * bfqd->bfq_slice_idle);
 
 	ttime->ttime_samples = (7*bic->ttime.ttime_samples + 256) / 8;
 	ttime->ttime_total = div_u64(7*ttime->ttime_total + 256*elapsed,  8);
@@ -5139,8 +5138,8 @@ static ssize_t bfq_strict_guarantees_store(struct elevator_queue *e,
 	if (__data > 1)
 		__data = 1;
 	if (!bfqd->strict_guarantees && __data == 1
-	    && bfqd->bfq_slice_idle < msecs_to_jiffies(8))
-		bfqd->bfq_slice_idle = msecs_to_jiffies(8);
+	    && bfqd->bfq_slice_idle < 8 * NSEC_PER_MSEC)
+		bfqd->bfq_slice_idle = 8 * NSEC_PER_MSEC;
 
 	bfqd->strict_guarantees = __data;
 
@@ -5321,3 +5320,4 @@ module_exit(bfq_exit);
 
 MODULE_AUTHOR("Arianna Avanzini, Fabio Checconi, Paolo Valente");
 MODULE_LICENSE("GPL");
+
