@@ -4566,7 +4566,7 @@ gamut_clk_off:
 			}
 		}
 		if (pp_gm_has_invalid_lut_size(config)) {
-			pr_debug("invalid lut size for gamut\n");
+			pr_err("invalid lut size for gamut\n");
 			ret = -EINVAL;
 			goto gamut_config_exit;
 		}
