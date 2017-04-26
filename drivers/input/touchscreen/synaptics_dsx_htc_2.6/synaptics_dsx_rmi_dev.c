@@ -1070,3 +1070,4 @@ module_exit(rmidev_module_exit);
 MODULE_AUTHOR("Synaptics, Inc.");
 MODULE_DESCRIPTION("Synaptics DSX RMI Dev Module");
 MODULE_LICENSE("GPL v2");
+
