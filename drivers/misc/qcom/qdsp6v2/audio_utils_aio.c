@@ -137,9 +137,8 @@ static int audio_aio_ion_lookup_vaddr(struct q6audio_aio *audio, void *addr,
 					list) {
 			if (addr >= region_elt->vaddr &&
 			addr < region_elt->vaddr + region_elt->len &&
-			addr + len <= region_elt->vaddr + region_elt->len &&
-			addr + len > addr)
-				pr_err("\t%s[%pK]:%pK, %ld --> %pK\n",
+			addr + len <= region_elt->vaddr + region_elt->len)
+				pr_err("\t%s[%p]:%p, %ld --> %pa\n",
 					__func__, audio,
 					region_elt->vaddr,
 					region_elt->len,
