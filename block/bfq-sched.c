@@ -291,7 +291,8 @@ static u64 bfq_delta(unsigned long service, unsigned long weight)
 static void bfq_calc_finish(struct bfq_entity *entity, unsigned long service)
 {
 	struct bfq_queue *bfqq = bfq_entity_to_bfqq(entity);
-	unsigned long long start, finish, delta ;
+	unsigned long long start, finish, delta;
+
 	BUG_ON(entity->weight == 0);
 
 	entity->finish = entity->start +
@@ -568,7 +569,7 @@ static void bfq_active_insert(struct bfq_service_tree *st,
 static unsigned short bfq_ioprio_to_weight(int ioprio)
 {
 	BUG_ON(ioprio < 0 || ioprio >= IOPRIO_BE_NR);
-	return (IOPRIO_BE_NR - ioprio) * BFQ_WEIGHT_CONVERSION_COEFF ;
+	return (IOPRIO_BE_NR - ioprio) * BFQ_WEIGHT_CONVERSION_COEFF;
 }
 
 /**
@@ -805,7 +806,7 @@ __bfq_entity_update_weight_prio(struct bfq_service_tree *old_st,
 				else
 					entity->new_weight = BFQ_MAX_WEIGHT;
 			}
-		       	entity->orig_weight = entity->new_weight;
+			entity->orig_weight = entity->new_weight;
 			if (bfqq)
 				bfqq->ioprio =
 				  bfq_weight_to_ioprio(entity->orig_weight);

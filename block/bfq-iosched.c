@@ -76,8 +76,8 @@
 #include <linux/jiffies.h>
 #include <linux/rbtree.h>
 #include <linux/ioprio.h>
-#include "bfq.h"
 #include "blk.h"
+#include "bfq.h"
 
 /* Expiration time of sync (0) and async (1) requests, in ns. */
 static const u64 bfq_fifo_expire[2] = { NSEC_PER_SEC / 4, NSEC_PER_SEC / 8 };
@@ -487,6 +487,22 @@ static void bfq_weights_tree_add(struct bfq_data *bfqd,
 
 	entity->weight_counter = kzalloc(sizeof(struct bfq_weight_counter),
 					 GFP_ATOMIC);
+
+	/*
+	 * In the unlucky event of an allocation failure, we just
+	 * exit. This will cause the weight of entity to not be
+	 * considered in bfq_differentiated_weights, which, in its
+	 * turn, causes the scenario to be deemed wrongly symmetric in
+	 * case entity's weight would have been the only weight making
+	 * the scenario asymmetric. On the bright side, no unbalance
+	 * will however occur when entity becomes inactive again (the
+	 * invocation of this function is triggered by an activation
+	 * of entity). In fact, bfq_weights_tree_remove does nothing
+	 * if !entity->weight_counter.
+	 */
+	if (unlikely(!entity->weight_counter))
+		return;
+
 	entity->weight_counter->weight = entity->weight;
 	rb_link_node(&entity->weight_counter->weights_node, parent, new);
 	rb_insert_color(&entity->weight_counter->weights_node, root);
@@ -758,6 +774,7 @@ static void bfq_add_to_burst(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 		        bfq_mark_bfqq_in_large_burst(bfqq_item);
 			bfq_log_bfqq(bfqd, bfqq_item, "marked in large burst");
 		}
+
 		bfq_mark_bfqq_in_large_burst(bfqq);
 		bfq_log_bfqq(bfqd, bfqq, "marked in large burst");
 
@@ -956,6 +973,7 @@ end:
 static int bfq_bfqq_budget_left(struct bfq_queue *bfqq)
 {
 	struct bfq_entity *entity = &bfqq->entity;
+
 	return entity->budget - entity->service;
 }
 
@@ -1129,7 +1147,7 @@ static bool bfq_bfqq_update_budg_for_activation(struct bfq_data *bfqd,
 
 	BUG_ON(bfqq->max_budget < 0);
 	entity->budget = max_t(unsigned long, bfqq->max_budget,
-			       bfq_serv_to_charge(bfqq->next_rq,bfqq));
+			       bfq_serv_to_charge(bfqq->next_rq, bfqq));
 	BUG_ON(entity->budget < 0);
 
 	bfq_clear_bfqq_non_blocking_wait_rq(bfqq);
@@ -2067,11 +2085,10 @@ bfq_merge_bfqqs(struct bfq_data *bfqd, struct bfq_io_cq *bic,
 		new_bfqq->wr_start_at_switch_to_srt =
 			bfqq->wr_start_at_switch_to_srt;
 		if (bfq_bfqq_busy(new_bfqq))
-		    bfqd->wr_busy_queues++;
+			bfqd->wr_busy_queues++;
 		new_bfqq->entity.prio_changed = 1;
 		bfq_log_bfqq(bfqd, new_bfqq,
-			     "wr starting after merge with %d, "
-			     "rais_max_time %u",
+			     "wr start after merge with %d, rais_max_time %u",
 			     bfqq->pid,
 			     jiffies_to_msecs(bfqq->wr_cur_max_time));
 	}
@@ -2166,6 +2183,7 @@ static void bfq_set_budget_timeout(struct bfq_data *bfqd,
 				   struct bfq_queue *bfqq)
 {
 	unsigned int timeout_coeff;
+
 	if (bfqq->wr_cur_max_time == bfqd->bfq_wr_rt_max_time)
 		timeout_coeff = 1;
 	else
@@ -2912,8 +2930,8 @@ static bool bfq_bfqq_is_slow(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	delta_ktime = ktime_sub(delta_ktime, bfqd->last_budget_start);
 	delta_usecs = ktime_to_us(delta_ktime);
 
-	/* don't trust short/unrealistic values. */
-	if (delta_usecs < 1000 || delta_usecs >= LONG_MAX) {
+	/* don't use too short time intervals */
+	if (delta_usecs < 1000) {
 		if (blk_queue_nonrot(bfqd->queue))
 			 /*
 			  * give same worst-case guarantees as idling
@@ -2923,7 +2941,7 @@ static bool bfq_bfqq_is_slow(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		else /* charge at least one seek */
 			*delta_ms = bfq_slice_idle / NSEC_PER_MSEC;
 
-		bfq_log(bfqd, "bfq_bfqq_is_slow: unrealistic %u", delta_usecs);
+		bfq_log(bfqd, "bfq_bfqq_is_slow: too short %u", delta_usecs);
 
 		return slow;
 	}
@@ -3011,9 +3029,7 @@ static unsigned long bfq_bfqq_softrt_next_start(struct bfq_data *bfqd,
 						struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqd, bfqq,
-		     "softrt_next_start: service_blkg %lu "
-		     "soft_rate %u sects/sec"
-		     "interval %u",
+"softrt_next_start: service_blkg %lu soft_rate %u sects/sec interval %u",
 		     bfqq->service_from_backlogged,
 		     bfqd->bfq_wr_max_softrt_rate,
 		     jiffies_to_msecs(HZ * bfqq->service_from_backlogged /
@@ -3285,7 +3301,7 @@ static bool bfq_bfqq_may_idle(struct bfq_queue *bfqq)
 	 */
 	idling_boosts_thr = !bfqd->hw_tag ||
 		(!blk_queue_nonrot(bfqd->queue) && bfq_bfqq_IO_bound(bfqq) &&
-		 bfq_bfqq_idle_window(bfqq));
+		 bfq_bfqq_idle_window(bfqq)) ;
 
 	/*
 	 * The value of the next variable,
@@ -3463,9 +3479,11 @@ static bool bfq_bfqq_may_idle(struct bfq_queue *bfqq)
 	 * 2) idling either boosts the throughput (without issues), or
 	 *    is necessary to preserve service guarantees.
 	 */
-	bfq_log_bfqq(bfqd, bfqq, "may_idle: sync %d idling_boosts_thr %d "
-		     "wr_busy %d boosts %d IO-bound %d guar %d",
-		     bfq_bfqq_sync(bfqq), idling_boosts_thr,
+	bfq_log_bfqq(bfqd, bfqq, "may_idle: sync %d idling_boosts_thr %d",
+		     bfq_bfqq_sync(bfqq), idling_boosts_thr);
+
+	bfq_log_bfqq(bfqd, bfqq,
+		     "may_idle: wr_busy %d boosts %d IO-bound %d guar %d",
 		     bfqd->wr_busy_queues,
 		     idling_boosts_thr_without_issues,
 		     bfq_bfqq_IO_bound(bfqq),
@@ -3949,8 +3967,8 @@ static void bfq_set_next_ioprio_data(struct bfq_queue *bfqq,
 	}
 
 	if (bfqq->new_ioprio >= IOPRIO_BE_NR) {
-		printk(KERN_CRIT "bfq_set_next_ioprio_data: new_ioprio %d\n",
-				 bfqq->new_ioprio);
+		pr_crit("bfq_set_next_ioprio_data: new_ioprio %d\n",
+			bfqq->new_ioprio);
 		BUG();
 	}
 
@@ -3965,6 +3983,7 @@ static void bfq_check_ioprio_change(struct bfq_io_cq *bic, struct bio *bio)
 {
 	struct bfq_data *bfqd = bic_to_bfqd(bic);
 	struct bfq_queue *bfqq;
+	unsigned long uninitialized_var(flags);
 	int ioprio = bic->icq.ioc->ioprio;
 
 	/*
@@ -4066,7 +4085,7 @@ static struct bfq_queue *bfq_get_queue(struct bfq_data *bfqd,
 
 	rcu_read_lock();
 
-	bfqg = bfq_find_set_group(bfqd,bio_blkcg(bio));
+	bfqg = bfq_find_set_group(bfqd, bio_blkcg(bio));
 	if (!bfqg) {
 		bfqq = &bfqd->oom_bfqq;
 		goto out;
@@ -4301,7 +4320,7 @@ static void bfq_insert_request(struct request_queue *q, struct request *rq)
 
 	bfq_add_request(rq);
 
-	rq->fifo_time = ktime_get_ns() + bfqd->bfq_fifo_expire[rq_is_sync(rq)];
+	rq->fifo_time = jiffies + bfqd->bfq_fifo_expire[rq_is_sync(rq)];
 	list_add_tail(&rq->queuelist, &bfqq->fifo);
 
 	bfq_rq_enqueued(bfqd, bfqq, rq);
@@ -4566,7 +4585,6 @@ new_queue:
 				     bic->was_in_burst_list,
 				     bic->saved_in_large_burst,
 				     bfqd->large_burst);
-
 			if ((bic->was_in_burst_list && bfqd->large_burst) ||
 			    bic->saved_in_large_burst) {
 				bfq_log_bfqq(bfqd, bfqq,
@@ -4577,10 +4595,10 @@ new_queue:
 				bfq_log_bfqq(bfqd, bfqq,
 					     "set_request: clearing in "
 					     "large burst");
-				bfq_clear_bfqq_in_large_burst(bfqq);
-				if (bic->was_in_burst_list)
-					hlist_add_head(&bfqq->burst_list_node,
-						       &bfqd->burst_list);
+			    bfq_clear_bfqq_in_large_burst(bfqq);
+			    if (bic->was_in_burst_list)
+			       hlist_add_head(&bfqq->burst_list_node,
+				              &bfqd->burst_list);
 			}
 			bfqq->split_time = jiffies;
 		}
@@ -5105,7 +5123,7 @@ static ssize_t bfq_max_budget_store(struct elevator_queue *e,
 	return ret;
 }
 
-/* 
+/*
  * Leaving this name to preserve name compatibility with cfq
  * parameters, but this timeout is used for both sync and async.
  */
@@ -5219,7 +5237,6 @@ static struct elevator_type iosched_bfq = {
 
 #ifdef CONFIG_BFQ_GROUP_IOSCHED
 static struct blkcg_policy blkcg_policy_bfq = {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
 	.dfl_cftypes		= bfq_blkg_files,
 	.legacy_cftypes		= bfq_blkcg_legacy_files,
 
@@ -5227,15 +5244,11 @@ static struct blkcg_policy blkcg_policy_bfq = {
 	.cpd_init_fn		= bfq_cpd_init,
 	.cpd_bind_fn	        = bfq_cpd_init,
 	.cpd_free_fn		= bfq_cpd_free,
-	.pd_alloc_fn		= bfq_pd_alloc,  /* Paolo, does this need a v4.1 equivelent? */
-	.pd_free_fn		= bfq_pd_free,   /* is free really equivelent to exit in v4.1? */
-#else
-	.cftypes		= bfq_blkcg_legacy_files,
-	.pd_exit_fn		= bfq_pd_exit, 
-	.pd_size 		= sizeof(struct bfq_group),
-#endif
+
+	.pd_alloc_fn		= bfq_pd_alloc,
 	.pd_init_fn		= bfq_pd_init,
 	.pd_offline_fn		= bfq_pd_offline,
+	.pd_free_fn		= bfq_pd_free,
 	.pd_reset_stats_fn	= bfq_pd_reset_stats,
 };
 #endif
@@ -5243,7 +5256,7 @@ static struct blkcg_policy blkcg_policy_bfq = {
 static int __init bfq_init(void)
 {
 	int ret;
-	char msg[60] = "BFQ I/O-scheduler: v8r8";
+	char msg[60] = "BFQ I/O-scheduler: v8r10";
 
 #ifdef CONFIG_BFQ_GROUP_IOSCHED
 	ret = blkcg_policy_register(&blkcg_policy_bfq);

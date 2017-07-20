@@ -1,5 +1,5 @@
 /*
- * BFQ v8r8 for 4.10.0: data structures and common functions prototypes.
+ * BFQ v8r10 for 4.4.0: data structures and common functions prototypes.
  *
  * Based on ideas and code from CFQ:
  * Copyright (C) 2003 Jens Axboe <axboe@kernel.dk>
@@ -17,14 +17,7 @@
 
 #include <linux/blktrace_api.h>
 #include <linux/hrtimer.h>
-#include <linux/ioprio.h>
-#include <linux/rbtree.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 #include <linux/blk-cgroup.h>
-#else
-#include "blk-cgroup.h"
-#endif
 
 #define BFQ_IOPRIO_CLASSES	3
 #define BFQ_CL_IDLE_TIMEOUT	(HZ/5)
@@ -62,8 +55,8 @@ struct bfq_service_tree {
 	/* tree for idle entities (i.e., not backlogged, with V <= F_i)*/
 	struct rb_root idle;
 
-	struct bfq_entity *first_idle; 	/* idle entity with minimum F_i */
-	struct bfq_entity *last_idle; 	/* idle entity with maximum F_i */
+	struct bfq_entity *first_idle;	/* idle entity with minimum F_i */
+	struct bfq_entity *last_idle;	/* idle entity with maximum F_i */
 
 	u64 vtime; /* scheduler virtual time */
 	/* scheduler weight sum; active and idle entities contribute to it */
@@ -168,7 +161,7 @@ struct bfq_entity {
 	/* budget, used also to calculate F_i: F_i = S_i + @budget / @weight */
 	int budget;
 
-	unsigned int weight; 	/* weight of the queue */
+	unsigned int weight;	 /* weight of the queue */
 	unsigned int new_weight; /* next weight if a change is in progress */
 
 	/* original weight, used to implement weight boosting */
@@ -654,17 +647,6 @@ BFQ_BFQQ_FNS(softrt_update);
 
 /* Logging facilities. */
 #ifdef CONFIG_BFQ_REDIRECT_TO_CONSOLE
-
-static const char *checked_dev_name(const struct device *dev)
-{
-	static const char nodev[] = "nodev";
-
-	if (dev)
-		return dev_name(dev);
-
-	return nodev;
-}
-
 #ifdef CONFIG_BFQ_GROUP_IOSCHED
 static struct bfq_group *bfqq_group(struct bfq_queue *bfqq);
 static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
@@ -674,8 +656,7 @@ static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 									\
 	assert_spin_locked((bfqd)->queue->queue_lock);			\
 	blkg_path(bfqg_to_blkg(bfqq_group(bfqq)), __pbuf, sizeof(__pbuf)); \
-	pr_crit("%s bfq%d%c %s " fmt "\n", 				\
-		checked_dev_name((bfqd)->queue->backing_dev_info->dev),	\
+	pr_crit("bfq%d%c %s " fmt "\n", 			\
 		(bfqq)->pid,						\
 		bfq_bfqq_sync((bfqq)) ? 'S' : 'A',			\
 		__pbuf, ##args);					\
@@ -685,26 +666,21 @@ static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 	char __pbuf[128];						\
 									\
 	blkg_path(bfqg_to_blkg(bfqg), __pbuf, sizeof(__pbuf));		\
-	pr_crit("%s %s " fmt "\n",					\
-	checked_dev_name((bfqd)->queue->backing_dev_info->dev),		\
-	__pbuf, ##args);						\
+	pr_crit("%s " fmt "\n", __pbuf, ##args);	\
 } while (0)
 
 #else /* CONFIG_BFQ_GROUP_IOSCHED */
 
-#define bfq_log_bfqq(bfqd, bfqq, fmt, args...)				\
-	pr_crit("%s bfq%d%c " fmt "\n",					\
-		checked_dev_name((bfqd)->queue->backing_dev_info->dev),	\
-		(bfqq)->pid, bfq_bfqq_sync((bfqq)) ? 'S' : 'A',		\
+#define bfq_log_bfqq(bfqd, bfqq, fmt, args...)		\
+	pr_crit("bfq%d%c " fmt "\n", (bfqq)->pid,		\
+		bfq_bfqq_sync((bfqq)) ? 'S' : 'A',	\
 		##args)
 #define bfq_log_bfqg(bfqd, bfqg, fmt, args...)		do {} while (0)
 
 #endif /* CONFIG_BFQ_GROUP_IOSCHED */
 
 #define bfq_log(bfqd, fmt, args...) \
-	pr_crit("%s bfq " fmt "\n",					\
-		checked_dev_name((bfqd)->queue->backing_dev_info->dev),	\
-		##args)
+	pr_crit("bfq " fmt "\n", ##args)
 
 #else /* CONFIG_BFQ_REDIRECT_TO_CONSOLE */
 #ifdef CONFIG_BFQ_GROUP_IOSCHED
@@ -797,10 +773,7 @@ struct bfqg_stats {
  */
 struct bfq_group_data {
 	/* must be the first member */
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,2,0)
 	struct blkcg_policy_data pd;
-#endif
 
 	unsigned int weight;
 };
@@ -891,7 +864,7 @@ bfq_entity_service_tree(struct bfq_entity *entity)
 	if (bfqq)
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
 			     "entity_service_tree %p %d",
-			     sched_data->service_tree + idx, idx) ;
+			     sched_data->service_tree + idx, idx);
 #ifdef CONFIG_BFQ_GROUP_IOSCHED
 	else {
 		struct bfq_group *bfqg =
@@ -899,7 +872,7 @@ bfq_entity_service_tree(struct bfq_entity *entity)
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
 			     "entity_service_tree %p %d",
-			     sched_data->service_tree + idx, idx) ;
+			     sched_data->service_tree + idx, idx);
 	}
 #endif
 	return sched_data->service_tree + idx;
